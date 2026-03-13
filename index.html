@@ -360,7 +360,7 @@
 
         // --- TUTORIAL CONFIG ---
         const levels = {
-            eye: { id: 'eye', title: "Quest 1: The Gatekeeper", desc: "\"Halt, wanderer! The ledger requires your official designation.\"", objective: "Create a variable called <code class='text-blue-300 font-bold bg-slate-700 px-1 rounded'>alias</code> and ask <span class='text-blue-300 font-mono'>What is your traveler alias?</span>", hint: "Use the `input()` function. Example: alias = input(\"Question?\")", targetVar: "alias", type: "string", targetStr: "What is your traveler alias?", successMsg: (val) => `"Greetings, ${val}. The ledger has been updated. You may pass."`, nextObj: "logic", npcX: 400, npcY: 100, codeAttempts: 0, savedCode: "" },
+            eye: { id: 'eye', title: "Quest 1: The Gatekeeper", desc: "\"Halt, wanderer! The ledger requires your official designation.\"", objective: "Create a variable called <code class='text-blue-300 font-bold bg-slate-700 px-1 rounded'>name</code> and ask <span class='text-blue-300 font-mono'>What is your traveler name?</span>", hint: "Use the `input()` function. Example: name = input(\"Question?\")", targetVar: "name", type: "string", targetStr: "What is your traveler name?", successMsg: (val) => `"Greetings, ${val}. The ledger has been updated. You may pass."`, nextObj: "logic", npcX: 400, npcY: 100, codeAttempts: 0, savedCode: "" },
             logic: { id: 'logic', title: "Quest 2: The Inn Keeper", desc: "\"Weary from your travels? How many nights will you be staying? Whole numbers only!\"", objective: "Create an integer variable called <code class='text-red-300 font-bold bg-slate-700 px-1 rounded'>nights</code> by asking <span class='text-red-300 font-mono'>How many nights will you stay?</span>", hint: "Wrap `input()` in `int()`. Example: nights = int(input(\"Question?\"))", targetVar: "nights", type: "int", targetStr: "How many nights will you stay?", successMsg: (val) => `"${val} nights it is! Here is your room key."`, nextObj: "laser", npcX: 600, npcY: 300, codeAttempts: 0, savedCode: "" },
             laser: { id: 'laser', title: "Quest 3: The Alchemist", desc: "\"Careful! This elixir is volatile. I need the precise temperature down to the decimal!\"", objective: "Create a float variable called <code class='text-purple-300 font-bold bg-slate-700 px-1 rounded'>temperature</code> by asking <span class='text-purple-300 font-mono'>What is the potion temperature?</span>", hint: "Wrap `input()` in `float()`. Example: temperature = float(input(\"Question?\"))", targetVar: "temperature", type: "float", targetStr: "What is the potion temperature?", successMsg: (val) => `"${val} degrees... Perfect. The elixir is stabilizing."`, nextObj: "core", npcX: 200, npcY: 300, codeAttempts: 0, savedCode: "" },
             core: { id: 'core', title: "Final Quest: The Oracle", desc: "\"To finalize your destiny, I require three final parameters: your profession, your age, and your height.\"", objective: "Write 3 lines of code. Line 1: <code class='text-blue-300'>job</code> (string) asking <span class='text-blue-300 font-mono'>What is your job?</span><br>Line 2: <code class='text-red-300'>age</code> (int) asking <span class='text-red-300 font-mono'>What is your age?</span><br>Line 3: <code class='text-purple-300'>height</code> (float) asking <span class='text-purple-300 font-mono'>What is your height?</span>", hint: "job = input(...)\nage = int(input(...))\nheight = float(input(...))", type: "final", successMsg: (vars) => `"Job: ${vars.job} | Age: ${vars.age} | Height: ${vars.height}. Destiny initialized."`, npcX: 400, npcY: 300, codeAttempts: 0, savedCode: "" }
@@ -1004,6 +1004,27 @@
             processNextSimulation();
         }
 
+        // Fuzzy matching function to forgive typos
+        function calculateLevenshteinDistance(a, b) {
+            const matrix = [];
+            for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+            for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                        matrix[i][j] = matrix[i - 1][j - 1];
+                    } else {
+                        matrix[i][j] = Math.min(
+                            matrix[i - 1][j - 1] + 1, // substitution
+                            Math.min(matrix[i][j - 1] + 1, // insertion
+                            matrix[i - 1][j] + 1) // deletion
+                        );
+                    }
+                }
+            }
+            return matrix[b.length][a.length];
+        }
+
         function checkSingleLineCode(code, config) {
             code = code.trim();
             if (code.includes("Input(") || code.includes("Int(") || code.includes("Float(")) return { success: false, msg: "Functions are case-sensitive." };
@@ -1019,8 +1040,19 @@
             const rightSideRaw = code.substring(code.indexOf('=') + 1).trim();
             const rightSideNoSpace = noSpaceCode.substring(noSpaceCode.indexOf('=') + 1);
 
-            const hasCorrectStr = rightSideRaw.includes(`"${config.targetStr}"`) || rightSideRaw.includes(`'${config.targetStr}'`);
-            if (!hasCorrectStr) return { success: false, msg: `Question string must be exact.` };
+            // Forgiving string check: ignore punctuation, case, and allow up to 30% character typos
+            const strMatch = rightSideRaw.match(/['"](.*?)['"]/);
+            if (!strMatch) return { success: false, msg: "Missing text in quotes for the prompt." };
+
+            const userStr = strMatch[1].toLowerCase().replace(/[^a-z0-9]/g, '');
+            const targetStr = config.targetStr.toLowerCase().replace(/[^a-z0-9]/g, '');
+            
+            const dist = calculateLevenshteinDistance(userStr, targetStr);
+            const maxErrors = Math.max(3, Math.floor(targetStr.length * 0.3));
+
+            if (dist > maxErrors) {
+                return { success: false, msg: `The question text in the quotes isn't quite right. Try: "${config.targetStr}"` };
+            }
 
             if (config.type === "string" && !rightSideNoSpace.startsWith("input(")) return { success: false, msg: "Use `input()`" };
             if (config.type === "int" && !rightSideNoSpace.startsWith("int(input(")) return { success: false, msg: "Use `int(input(...))`" };
@@ -1112,7 +1144,7 @@
             // Assemble Data into Rows showing actual code written
             const tableData = [
                 [
-                    "Quest 1: String Input (alias)",
+                    "Quest 1: String Input (name)",
                     levels.eye.savedCode || "N/A",
                     levels.eye.codeAttempts || 1
                 ],
