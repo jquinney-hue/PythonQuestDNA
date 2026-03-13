@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python RPG: The Coder's Quest</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF Generation Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Press+Start+2P&family=Inter:wght@400;600;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            overflow: hidden; 
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .game-title {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.2rem;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        .map-interactive {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%2310b981" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>') 12 12, crosshair;
+        }
+
+        #player, .enemy-sprite {
+            transition: transform 0.6s linear;
+            pointer-events: none; 
+        }
+
+        .enemy-sprite.combat-engaged {
+            filter: drop-shadow(0 0 10px #ef4444);
+            animation: pulse-ring 1s infinite;
+        }
+
+        .npc {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .npc.active:hover {
+            filter: drop-shadow(0 0 8px currentColor) brightness(1.2);
+        }
+
+        .npc.locked {
+            opacity: 0.5;
+            filter: grayscale(100%);
+            cursor: not-allowed;
+        }
+
+        .npc.completed {
+            opacity: 0.8;
+            cursor: pointer;
+        }
+
+        .npc-shadow {
+            fill: rgba(0, 0, 0, 0.4);
+            transform-origin: center;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .animate-float {
+            animation: float 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { r: 15; opacity: 0.8; }
+            100% { r: 40; opacity: 0; }
+        }
+
+        .active-indicator circle {
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col selection:bg-emerald-500/30">
+
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 p-4 shadow-xl flex justify-between items-center z-20 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="game-title text-emerald-400">PYTHON QUEST</h1>
+            <span class="hidden md:inline-block bg-slate-800 text-slate-300 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider border border-slate-700">Point & Click RPG</span>
+        </div>
+        
+        <!-- UI Stats Bar -->
+        <div id="stats-container" class="flex items-center gap-4 hidden">
+            <div class="text-red-400 font-bold bg-slate-800 px-3 py-1 rounded shadow-inner border border-slate-700 flex items-center gap-2">
+                <span>❤️</span> <span id="ui-hp">20/20</span>
+            </div>
+            <div class="text-yellow-400 font-bold bg-slate-800 px-3 py-1 rounded shadow-inner border border-slate-700 flex items-center gap-2">
+                <span>💰</span> <span id="ui-coins">0</span>
+            </div>
+            <div class="text-purple-400 font-bold bg-slate-800 px-3 py-1 rounded shadow-inner border border-slate-700 flex items-center gap-2">
+                <span>🧪</span> <span id="ui-potions">0</span>
+            </div>
+            <div class="text-blue-400 font-bold bg-slate-800 px-3 py-1 rounded shadow-inner border border-slate-700 flex items-center gap-2 w-48 relative overflow-hidden">
+                <div class="absolute inset-0 bg-blue-900/30 z-0"></div>
+                <div id="ui-xp-bar" class="absolute inset-y-0 left-0 bg-blue-600 z-0 transition-all" style="width: 0%;"></div>
+                <span class="z-10 relative">⭐ Lvl <span id="ui-level">1</span></span>
+                <span class="z-10 relative text-xs ml-auto" id="ui-xp">0/100 XP</span>
+            </div>
+        </div>
+
+        <div id="tutorial-progress" class="flex items-center gap-3">
+            <div class="text-xs text-slate-400 uppercase tracking-widest font-bold">Quests</div>
+            <div id="progress-bar-container" class="flex gap-1">
+                <div id="prog-1" class="w-8 h-3 bg-slate-700 rounded-sm"></div>
+                <div id="prog-2" class="w-8 h-3 bg-slate-700 rounded-sm"></div>
+                <div id="prog-3" class="w-8 h-3 bg-slate-700 rounded-sm"></div>
+                <div id="prog-4" class="w-8 h-3 bg-slate-700 rounded-sm"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Split -->
+    <main class="flex-grow flex flex-col md:flex-row w-full overflow-hidden">
+        
+        <!-- Game Canvas -->
+        <div class="w-full md:w-3/5 lg:w-2/3 bg-black relative shadow-[inset_0_0_50px_rgba(0,0,0,0.8)] border-r border-slate-800">
+            <!-- Instructions Overlay -->
+            <div id="controls-overlay" class="absolute top-4 left-4 bg-slate-900/80 backdrop-blur border border-slate-700 p-3 rounded-lg text-sm text-slate-300 pointer-events-none z-10 max-w-xs shadow-lg transition-opacity">
+                <span class="font-bold text-white block mb-1">Controls:</span>
+                Click the map to walk.<br>Click characters to interact.
+            </div>
+
+            <!-- Transition Arrows -->
+            <div id="arrow-to-field" class="hidden absolute bottom-8 left-1/2 transform -translate-x-1/2 flex flex-col items-center cursor-pointer animate-float z-20 hover:scale-110 transition-transform drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]" onclick="transitionToField()">
+                <span class="text-emerald-100 font-bold font-mono text-xs bg-emerald-900/90 px-3 py-1 rounded shadow border border-emerald-500 mb-1">TO FIELD</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="rgba(52, 211, 153, 0.3)" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 4v16"/><path d="m19 13-7 7-7-7"/>
+                </svg>
+            </div>
+
+            <div id="arrow-to-plaza" class="hidden absolute top-8 left-1/2 transform -translate-x-1/2 flex flex-col items-center cursor-pointer animate-float z-20 hover:scale-110 transition-transform drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]" onclick="transitionToPlaza()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="rgba(59, 130, 246, 0.3)" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20V4"/><path d="m5 11 7-7 7 7"/>
+                </svg>
+                <span class="text-blue-100 font-bold font-mono text-xs bg-blue-900/90 px-3 py-1 rounded shadow border border-blue-500 mt-1">TO PLAZA</span>
+            </div>
+
+            <!-- The SVG World -->
+            <svg id="game-map" viewBox="0 0 800 600" class="w-full h-full map-interactive" preserveAspectRatio="xMidYMid slice" onclick="handleMapClick(event)">
+                
+                <!-- PLAZA ZONE -->
+                <g id="zone-plaza">
+                    <rect width="800" height="600" fill="#064e3b" /> 
+                    <path d="M 400 650 L 400 300 L 200 300" fill="none" stroke="#78350f" stroke-width="60" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M 400 300 L 600 300" fill="none" stroke="#78350f" stroke-width="60" stroke-linecap="round" />
+                    <path d="M 400 300 L 400 100" fill="none" stroke="#78350f" stroke-width="60" stroke-linecap="round" />
+
+                    <!-- Scenery -->
+                    <g class="fill-emerald-800 stroke-emerald-950 stroke-2">
+                        <circle cx="100" cy="100" r="40" /><circle cx="120" cy="80" r="30" />
+                        <circle cx="700" cy="150" r="45" /><circle cx="730" cy="130" r="35" />
+                        <circle cx="150" cy="500" r="50" /><circle cx="120" cy="480" r="35" />
+                        <circle cx="650" cy="450" r="40" /><circle cx="680" cy="480" r="30" />
+                    </g>
+
+                    <g id="npc-eye" class="npc active text-blue-400" transform="translate(400, 100)" onclick="handleNPCClick(event, 'eye')">
+                        <ellipse cx="0" cy="20" rx="20" ry="10" class="npc-shadow" />
+                        <g class="active-indicator"><circle cx="0" cy="-10" r="15"/></g>
+                        <g class="animate-float">
+                            <path d="M -15 -10 L 15 -10 L 20 10 L -20 10 Z" fill="#1e3a8a" />
+                            <circle cx="0" cy="-25" r="15" fill="#bfdbfe" />
+                            <rect x="-5" y="-30" width="10" height="5" fill="#1e40af" />
+                            <text x="0" y="-45" font-family="monospace" font-size="12" fill="white" font-weight="bold" text-anchor="middle" class="drop-shadow-md">Gatekeeper</text>
+                        </g>
+                    </g>
+
+                    <g id="npc-logic" class="npc locked text-red-400" transform="translate(600, 300)" onclick="handleNPCClick(event, 'logic')">
+                        <ellipse cx="0" cy="20" rx="20" ry="10" class="npc-shadow" />
+                        <g class="active-indicator hidden"><circle cx="0" cy="-10" r="15"/></g>
+                        <g class="animate-float">
+                            <path d="M -20 -10 Q 0 -20 20 -10 L 15 15 L -15 15 Z" fill="#7f1d1d" />
+                            <circle cx="0" cy="-20" r="14" fill="#fecaca" />
+                            <circle cx="-5" cy="-22" r="2" fill="#450a0a" />
+                            <circle cx="5" cy="-22" r="2" fill="#450a0a" />
+                            <text x="0" y="-45" font-family="monospace" font-size="12" fill="white" font-weight="bold" text-anchor="middle" class="drop-shadow-md">Inn Keeper</text>
+                        </g>
+                    </g>
+
+                    <g id="npc-laser" class="npc locked text-purple-400" transform="translate(200, 300)" onclick="handleNPCClick(event, 'laser')">
+                        <ellipse cx="0" cy="20" rx="20" ry="10" class="npc-shadow" />
+                        <g class="active-indicator hidden"><circle cx="0" cy="-10" r="15"/></g>
+                        <g class="animate-float">
+                            <polygon points="0,-15 15,15 -15,15" fill="#581c87" />
+                            <circle cx="0" cy="-20" r="12" fill="#e9d5ff" />
+                            <polygon points="-10,-25 10,-25 0,-40" fill="#3b0764" />
+                            <text x="0" y="-50" font-family="monospace" font-size="12" fill="white" font-weight="bold" text-anchor="middle" class="drop-shadow-md">Alchemist</text>
+                        </g>
+                    </g>
+
+                    <g id="npc-core" class="npc locked text-yellow-400" transform="translate(400, 300)" onclick="handleNPCClick(event, 'core')">
+                        <ellipse cx="0" cy="30" rx="30" ry="15" class="npc-shadow" />
+                        <g class="active-indicator hidden"><circle cx="0" cy="-10" r="15"/></g>
+                        <g class="animate-float">
+                            <polygon points="-25,0 0,-40 25,0 0,20" fill="#ca8a04" stroke="#fef08a" stroke-width="3"/>
+                            <circle cx="0" cy="-10" r="8" fill="#fef08a" />
+                            <text x="0" y="-55" font-family="monospace" font-size="14" fill="white" font-weight="bold" text-anchor="middle" class="drop-shadow-md">The Oracle</text>
+                        </g>
+                    </g>
+                </g>
+
+                <!-- FIELD ZONE -->
+                <g id="zone-field" class="hidden">
+                    <rect width="800" height="600" fill="#3f6212" /> <!-- Lighter, wilder green -->
+                    
+                    <path d="M 400 -50 L 400 650" fill="none" stroke="#713f12" stroke-width="40" stroke-linecap="round" stroke-dasharray="20, 10" />
+                    
+                    <!-- Random Rocks/Bushes -->
+                    <g class="fill-lime-800 stroke-lime-900 stroke-2">
+                        <path d="M 50 150 Q 70 100 100 150 Z" />
+                        <path d="M 700 450 Q 720 400 750 450 Z" />
+                        <circle cx="600" cy="100" r="15" fill="#52525b" stroke="#3f3f46" />
+                        <circle cx="200" cy="500" r="20" fill="#52525b" stroke="#3f3f46" />
+                    </g>
+
+                    <!-- Layer for dynamic enemies -->
+                    <g id="enemies-layer"></g>
+                </g>
+
+                <!-- Player Character -->
+                <g id="player" style="transform: translate(400px, 500px);">
+                    <ellipse cx="0" cy="15" rx="15" ry="8" class="npc-shadow" />
+                    <path d="M -12 -5 Q 0 -15 12 -5 L 10 15 L -10 15 Z" fill="#10b981" /> <!-- Tunic -->
+                    <circle cx="0" cy="-15" r="12" fill="#fed7aa" /> <!-- Head -->
+                    <!-- Eyes -->
+                    <circle cx="-4" cy="-17" r="2" fill="#0f172a" />
+                    <circle cx="4" cy="-17" r="2" fill="#0f172a" />
+                </g>
+            </svg>
+        </div>
+
+        <!-- Terminal & Editor UI -->
+        <div class="w-full md:w-2/5 lg:w-1/3 bg-slate-900 flex flex-col z-10 shrink-0 h-full max-h-[50vh] md:max-h-full">
+            
+            <div class="bg-slate-800 p-4 border-b border-slate-700 shrink-0">
+                <h2 id="task-title" class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    Wanderer's Log
+                </h2>
+                <div id="task-desc" class="text-slate-300 text-sm leading-relaxed min-h-[60px]">
+                    Welcome to Pythonia. Move by clicking the ground. Speak to the Gatekeeper to begin your quest.
+                </div>
+            </div>
+
+            <div id="terminal-history" class="p-4 code-font text-emerald-400 text-sm flex-grow overflow-y-auto whitespace-pre-wrap flex flex-col gap-2 bg-slate-950 shadow-inner">
+                <div class="text-slate-500">System booted.</div>
+                <div class="text-emerald-500">Ready for exploration.</div>
+            </div>
+
+            <div id="editor-container" class="border-t border-slate-700 p-4 bg-slate-800 shrink-0 hidden">
+                <label id="terminal-label" class="block text-slate-400 text-xs mb-2 font-bold uppercase tracking-widest">Python Console:</label>
+                
+                <div id="single-line-wrapper" class="relative">
+                    <span id="prompt-icon" class="absolute left-3 top-3 text-slate-500 code-font">>>></span>
+                    <input type="text" id="code-input" class="w-full bg-slate-950 text-emerald-300 code-font border border-slate-600 rounded py-2 pl-10 pr-4 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors" placeholder="Type python code..." autocomplete="off" spellcheck="false">
+                </div>
+
+                <div id="multi-line-wrapper" class="relative hidden">
+                    <textarea id="code-textarea" rows="4" class="w-full bg-slate-950 text-emerald-300 code-font border border-slate-600 rounded p-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors" placeholder="Write the full sequence..." autocomplete="off" spellcheck="false"></textarea>
+                </div>
+
+                <div class="flex justify-between items-center mt-3">
+                    <button id="hint-btn" onclick="showHint()" class="text-slate-400 hover:text-yellow-400 text-xs font-bold transition-colors uppercase tracking-wider flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Hint
+                    </button>
+                    <button onclick="submitCode()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded font-bold text-sm shadow transition-all active:scale-95 code-font tracking-wide">
+                        Execute
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- MASTER GAME STATE ---
+        let gameState = "tutorial"; // tutorial, plaza, field, combat, shop
+        let currentLevel = null;
+        let progress = 0;
+        
+        let playerX = 400;
+        let playerY = 500;
+        let isMoving = false;
+
+        let isSimulating = false;
+        let simulationQueue = [];
+        let simulationCurrentConfig = null;
+        let storedVariables = {};
+
+        // --- RPG STATS ---
+        let pStats = {
+            level: 1,
+            xp: 0,
+            xpNeeded: 100,
+            hp: 20,
+            maxHp: 20,
+            coins: 0,
+            potions: 0,
+            defending: false
+        };
+
+        // --- FIELD ENGINE VARIABLES ---
+        let activeEnemies = [];
+        let enemyIdCounter = 0;
+        let gameLoopInterval = null;
+        let combatTarget = null;
+        let fieldLoopTime = 0;
+
+        // --- UI UPDATER ---
+        function updateUI() {
+            document.getElementById('ui-hp').innerText = `${pStats.hp}/${pStats.maxHp}`;
+            document.getElementById('ui-level').innerText = pStats.level;
+            document.getElementById('ui-xp').innerText = `${pStats.xp}/${pStats.xpNeeded} XP`;
+            document.getElementById('ui-coins').innerText = pStats.coins;
+            document.getElementById('ui-potions').innerText = pStats.potions;
+            
+            const xpPct = Math.min(100, (pStats.xp / pStats.xpNeeded) * 100);
+            document.getElementById('ui-xp-bar').style.width = `${xpPct}%`;
+        }
+
+        function awardXP(amount) {
+            pStats.xp += amount;
+            updateTerminal(`Gained ${amount} XP!`, "success");
+            if (pStats.xp >= pStats.xpNeeded) {
+                pStats.level++;
+                pStats.xp -= pStats.xpNeeded;
+                pStats.xpNeeded = Math.floor(pStats.xpNeeded * 1.5);
+                pStats.maxHp += 10;
+                pStats.hp = pStats.maxHp;
+                updateTerminal(`LEVEL UP! You are now level ${pStats.level}. Max HP increased!`, "system");
+            }
+            updateUI();
+        }
+
+        // --- TUTORIAL CONFIG ---
+        const levels = {
+            eye: { id: 'eye', title: "Quest 1: The Gatekeeper", desc: "\"Halt, wanderer! The ledger requires your official designation.\"", objective: "Create a variable called <code class='text-blue-300 font-bold bg-slate-700 px-1 rounded'>alias</code> and ask <span class='text-blue-300 font-mono'>What is your traveler alias?</span>", hint: "Use the `input()` function. Example: alias = input(\"Question?\")", targetVar: "alias", type: "string", targetStr: "What is your traveler alias?", successMsg: (val) => `"Greetings, ${val}. The ledger has been updated. You may pass."`, nextObj: "logic", npcX: 400, npcY: 100, codeAttempts: 0, savedCode: "" },
+            logic: { id: 'logic', title: "Quest 2: The Inn Keeper", desc: "\"Weary from your travels? How many nights will you be staying? Whole numbers only!\"", objective: "Create an integer variable called <code class='text-red-300 font-bold bg-slate-700 px-1 rounded'>nights</code> by asking <span class='text-red-300 font-mono'>How many nights will you stay?</span>", hint: "Wrap `input()` in `int()`. Example: nights = int(input(\"Question?\"))", targetVar: "nights", type: "int", targetStr: "How many nights will you stay?", successMsg: (val) => `"${val} nights it is! Here is your room key."`, nextObj: "laser", npcX: 600, npcY: 300, codeAttempts: 0, savedCode: "" },
+            laser: { id: 'laser', title: "Quest 3: The Alchemist", desc: "\"Careful! This elixir is volatile. I need the precise temperature down to the decimal!\"", objective: "Create a float variable called <code class='text-purple-300 font-bold bg-slate-700 px-1 rounded'>temperature</code> by asking <span class='text-purple-300 font-mono'>What is the potion temperature?</span>", hint: "Wrap `input()` in `float()`. Example: temperature = float(input(\"Question?\"))", targetVar: "temperature", type: "float", targetStr: "What is the potion temperature?", successMsg: (val) => `"${val} degrees... Perfect. The elixir is stabilizing."`, nextObj: "core", npcX: 200, npcY: 300, codeAttempts: 0, savedCode: "" },
+            core: { id: 'core', title: "Final Quest: The Oracle", desc: "\"To finalize your destiny, I require three final parameters: your profession, your age, and your height.\"", objective: "Write 3 lines of code. Line 1: <code class='text-blue-300'>job</code> (string) asking <span class='text-blue-300 font-mono'>What is your job?</span><br>Line 2: <code class='text-red-300'>age</code> (int) asking <span class='text-red-300 font-mono'>What is your age?</span><br>Line 3: <code class='text-purple-300'>height</code> (float) asking <span class='text-purple-300 font-mono'>What is your height?</span>", hint: "job = input(...)\nage = int(input(...))\nheight = float(input(...))", type: "final", successMsg: (vars) => `"Job: ${vars.job} | Age: ${vars.age} | Height: ${vars.height}. Destiny initialized."`, npcX: 400, npcY: 300, codeAttempts: 0, savedCode: "" }
+        };
+
+        // --- MOVEMENT SYSTEM ---
+        function handleMapClick(event) {
+            if (gameState === "combat") return;
+            if (event.target.closest('.npc')) return;
+
+            if (currentLevel !== null && gameState === "tutorial") {
+                updateTerminal("Complete the current task before walking away.", "error");
+                return;
+            }
+            if (gameState === "shop") {
+                exitShop();
+            }
+            
+            const svg = document.getElementById('game-map');
+            const pt = svg.createSVGPoint();
+            pt.x = event.clientX;
+            pt.y = event.clientY;
+            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+            
+            // Check manual collision with enemies if in field
+            if (gameState === "field") {
+                let clickedEnemy = null;
+                for (let e of activeEnemies) {
+                    if (Math.hypot(e.x - svgP.x, e.y - svgP.y) < 40) {
+                        clickedEnemy = e;
+                        break;
+                    }
+                }
+                if (clickedEnemy) {
+                    movePlayer(clickedEnemy.x, clickedEnemy.y + 40, () => startCombat(clickedEnemy));
+                    return;
+                }
+            }
+
+            movePlayer(svgP.x, svgP.y);
+        }
+
+        function movePlayer(targetX, targetY, callback) {
+            isMoving = true;
+            playerX = targetX;
+            playerY = targetY;
+            
+            const player = document.getElementById('player');
+            player.style.transform = `translate(${playerX}px, ${playerY}px)`;
+            
+            setTimeout(() => {
+                isMoving = false;
+                if (callback) callback();
+            }, 600);
+        }
+
+        // --- ZONE TRANSITIONS ---
+        function transitionToField() {
+            if (gameState !== "plaza") return;
+            document.getElementById("arrow-to-field").classList.add("hidden");
+            
+            // Walk off bottom of screen
+            movePlayer(playerX, 650, () => {
+                document.getElementById("zone-plaza").classList.add("hidden");
+                document.getElementById("zone-field").classList.remove("hidden");
+                document.getElementById("arrow-to-plaza").classList.remove("hidden");
+                
+                gameState = "field";
+                updateTerminal("Entered the Wild Fields. Beware of roaming bugs.", "system");
+                
+                // Teleport to top of field map and walk in
+                const player = document.getElementById('player');
+                player.style.transition = 'none';
+                player.style.transform = `translate(400px, -50px)`;
+                playerX = 400; playerY = -50;
+                
+                setTimeout(() => {
+                    player.style.transition = 'transform 0.6s linear';
+                    movePlayer(400, 100, () => {
+                        startFieldEngine();
+                    });
+                }, 50);
+            });
+        }
+
+        function transitionToPlaza() {
+            if (gameState !== "field") return;
+            document.getElementById("arrow-to-plaza").classList.add("hidden");
+            stopFieldEngine();
+            
+            // Walk off top of screen
+            movePlayer(playerX, -50, () => {
+                document.getElementById("zone-field").classList.add("hidden");
+                document.getElementById("zone-plaza").classList.remove("hidden");
+                document.getElementById("arrow-to-field").classList.remove("hidden");
+                
+                gameState = "plaza";
+                updateTerminal("Returned to the safety of the Plaza.", "system");
+                
+                const player = document.getElementById('player');
+                player.style.transition = 'none';
+                player.style.transform = `translate(400px, 650px)`;
+                playerX = 400; playerY = 650;
+                
+                setTimeout(() => {
+                    player.style.transition = 'transform 0.6s linear';
+                    movePlayer(400, 500);
+                }, 50);
+            });
+        }
+
+        // --- FIELD ENGINE (ENEMIES) ---
+        function startFieldEngine() {
+            if (gameLoopInterval) clearInterval(gameLoopInterval);
+            fieldLoopTime = 0;
+            
+            // Spawn 4 enemies just off-screen to start
+            for(let i=0; i<4; i++) {
+                spawnEnemy();
+            }
+
+            gameLoopInterval = setInterval(fieldUpdateLoop, 100);
+        }
+
+        function stopFieldEngine() {
+            if (gameLoopInterval) clearInterval(gameLoopInterval);
+            activeEnemies.forEach(e => e.el.remove());
+            activeEnemies = [];
+        }
+
+        function spawnEnemy() {
+            const types = [
+                { name: "Slime", color: "#84cc16", type: "circle", r: 15 },
+                { name: "Goblin", color: "#dc2626", type: "poly", points: "0,-15 15,15 -15,15" },
+                { name: "Bat", color: "#7c3aed", type: "poly", points: "-20,0 20,0 0,15 0,-10" }
+            ];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            // Scale level around player (min 1, max player+1)
+            let elvl = Math.max(1, pStats.level + Math.floor(Math.random() * 3) - 1);
+
+            let sx, sy, tx, ty;
+            
+            // Always spawn just off the edges of the screen
+            if (Math.random() > 0.5) {
+                sx = Math.random() > 0.5 ? -40 : 840;
+                sy = Math.random() * 600;
+            } else {
+                sx = Math.random() * 800;
+                sy = Math.random() > 0.5 ? -40 : 640;
+            }
+
+            // Initial target is somewhere inside the map so they wander in
+            tx = Math.random() * 600 + 100;
+            ty = Math.random() * 400 + 100;
+
+            const id = `enemy-${enemyIdCounter++}`;
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            g.setAttribute("id", id);
+            
+            // FIX: Removed animate-float from the main positioning wrapper
+            g.setAttribute("class", "enemy-sprite");
+            g.style.transform = `translate(${sx}px, ${sy}px)`;
+            
+            // FIX: Match the CSS transition to the 100ms game loop so they don't visually lag
+            g.style.transition = "transform 0.1s linear"; 
+            
+            // FIX: Wrapped the shapes in an inner group specifically for the float animation
+            if (type.type === "circle") {
+                g.innerHTML = `<g class="animate-float"><circle cx="0" cy="0" r="${type.r}" fill="${type.color}" /> <circle cx="-5" cy="-2" r="2" fill="#000"/><circle cx="5" cy="-2" r="2" fill="#000"/></g>`;
+            } else {
+                g.innerHTML = `<g class="animate-float"><polygon points="${type.points}" fill="${type.color}" /> <circle cx="0" cy="0" r="2" fill="#000"/></g>`;
+            }
+            
+            document.getElementById("enemies-layer").appendChild(g);
+            
+            const enemyObj = {
+                id, el: g, name: type.name, level: elvl,
+                hp: elvl * 10, maxHp: elvl * 10, dmg: elvl * 2 + 1, xp: elvl * 20, coins: elvl * 3,
+                x: sx, y: sy, tx, ty, birth: fieldLoopTime, state: 'wandering'
+            };
+            
+            activeEnemies.push(enemyObj);
+        }
+
+        function fieldUpdateLoop() {
+            if (gameState !== "field") return; // Paused if in combat
+            fieldLoopTime++;
+
+            // Spawn roughly every 4 seconds, keep a max of 6 enemies on screen
+            if (fieldLoopTime % 40 === 0 && activeEnemies.length < 6) {
+                spawnEnemy();
+            }
+
+            for (let i = activeEnemies.length - 1; i >= 0; i--) {
+                let e = activeEnemies[i];
+                
+                const distToPlayer = Math.hypot(e.x - playerX, e.y - playerY);
+
+                // Aggro mechanic: if player is within 200px, start chasing!
+                if (distToPlayer < 200) {
+                    e.state = 'chasing';
+                    e.tx = playerX;
+                    e.ty = playerY;
+                } else {
+                    e.state = 'wandering';
+                }
+
+                // Calculate movement vector
+                const dx = e.tx - e.x;
+                const dy = e.ty - e.y;
+                const dist = Math.hypot(dx, dy);
+                
+                // If wandering and reached target, pick a new random nearby spot to walk to
+                if (e.state === 'wandering' && dist < 10) {
+                    e.tx = e.x + (Math.random() * 300 - 150);
+                    e.ty = e.y + (Math.random() * 300 - 150);
+                    // Keep wandering target roughly within map bounds
+                    e.tx = Math.max(50, Math.min(750, e.tx));
+                    e.ty = Math.max(50, Math.min(550, e.ty));
+                }
+
+                // Clean up old wandering enemies so the map doesn't get cluttered over time
+                if (fieldLoopTime - e.birth > 600 && distToPlayer > 300) {
+                    e.el.remove();
+                    activeEnemies.splice(i, 1);
+                    continue;
+                }
+
+                // Speed adjustments: Slow amble when wandering, fast when chasing
+                let speed = e.state === 'chasing' ? 2.5 : 0.8;
+
+                if (dist > 0) {
+                    e.x += (dx / dist) * speed;
+                    e.y += (dy / dist) * speed;
+                    e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
+                }
+
+                // Collision with player (triggers combat)
+                if (!isMoving && distToPlayer < 35) {
+                    startCombat(e);
+                    break;
+                }
+            }
+        }
+
+        // --- COMBAT ENGINE ---
+        function startCombat(enemy) {
+            gameState = "combat";
+            combatTarget = enemy;
+            enemy.el.classList.add("combat-engaged");
+
+            // CRITICAL FIX: Ensure the single-line input box is visible (it might be hidden if they just did the Oracle quest)
+            document.getElementById("multi-line-wrapper").classList.add("hidden");
+            document.getElementById("single-line-wrapper").classList.remove("hidden");
+
+            setupEditorUI("Combat Mode", "text-red-400", ">>>");
+            document.getElementById("editor-container").classList.remove("hidden");
+            
+            updateTerminal(`--- COMBAT ENGAGED ---`, "system");
+            updateTerminal(`A wild ${enemy.name} appears!`, "error");
+            updateTerminal(`Lvl ${enemy.level} ${enemy.name} attacked! HP: ${enemy.hp}/${enemy.maxHp}`, "error");
+            
+            requestCombatAction();
+        }
+
+        function requestCombatAction() {
+            pStats.defending = false;
+            updateTerminal(`Choose action: attack(), defend(), use_potion(), escape()`, "prompt");
+            document.getElementById("code-input").placeholder = "Type action()...";
+            document.getElementById("code-input").value = "";
+            document.getElementById("code-input").focus();
+        }
+
+        function processCombatCommand(code) {
+            const cmd = code.trim().replace(/\s+/g, '').toLowerCase();
+            updateTerminal(code, "user");
+
+            const pDmg = pStats.level * 4 + 4;
+
+            if (cmd === "attack()") {
+                updateTerminal(`You execute attack() for ${pDmg} damage.`, "info");
+                combatTarget.hp -= pDmg;
+            } else if (cmd === "defend()") {
+                pStats.defending = true;
+                updateTerminal(`You brace yourself. Defense increased.`, "info");
+            } else if (cmd === "use_potion()") {
+                if (pStats.potions > 0) {
+                    pStats.potions--;
+                    pStats.hp = Math.min(pStats.maxHp, pStats.hp + 20);
+                    updateTerminal(`Used Potion! Recovered 20 HP.`, "success");
+                    updateUI();
+                } else {
+                    updateTerminal(`No potions left in inventory!`, "error");
+                    requestCombatAction();
+                    return;
+                }
+            } else if (cmd === "escape()") {
+                updateTerminal(`You successfully compiled an escape() route!`, "system");
+                endCombat(false);
+                return;
+            } else {
+                updateTerminal(`NameError: name '${cmd.replace('()','')}' is not defined. Try attack(), defend(), use_potion(), or escape().`, "error");
+                requestCombatAction();
+                return;
+            }
+
+            // Check enemy death
+            if (combatTarget.hp <= 0) {
+                updateTerminal(`Defeated ${combatTarget.name}!`, "success");
+                awardXP(combatTarget.xp);
+                pStats.coins += combatTarget.coins;
+                updateTerminal(`Found ${combatTarget.coins} coins.`, "info");
+                updateUI();
+                endCombat(true);
+                return;
+            }
+
+            // Enemy Turn
+            setTimeout(() => {
+                let eDmg = combatTarget.dmg;
+                if (pStats.defending) eDmg = Math.max(1, Math.floor(eDmg / 3));
+                
+                pStats.hp -= eDmg;
+                updateUI();
+                updateTerminal(`${combatTarget.name} hits you for ${eDmg} damage!`, "error");
+
+                if (pStats.hp <= 0) {
+                    playerDeath();
+                } else {
+                    requestCombatAction();
+                }
+            }, 800);
+        }
+
+        function endCombat(enemyDied) {
+            if (combatTarget && combatTarget.el) {
+                combatTarget.el.classList.remove("combat-engaged");
+                if (enemyDied) {
+                    combatTarget.el.remove();
+                    activeEnemies = activeEnemies.filter(e => e.id !== combatTarget.id);
+                } else {
+                    // If escaped, just push enemy away a bit
+                    combatTarget.x -= 100;
+                    combatTarget.el.style.transform = `translate(${combatTarget.x}px, ${combatTarget.y}px)`;
+                }
+            }
+            combatTarget = null;
+            gameState = "field";
+            document.getElementById("editor-container").classList.add("hidden");
+            document.getElementById("task-title").innerHTML = "Wild Fields";
+            document.getElementById("task-desc").innerHTML = "Watch out for roaming enemies.";
+        }
+
+        function playerDeath() {
+            updateTerminal("FATAL ERROR: Player HP reached 0.", "error");
+            updateTerminal("Recompiling...", "system");
+            
+            gameState = "tutorial"; // Temporary to halt things
+            stopFieldEngine();
+            combatTarget = null;
+
+            // Reset stats (Level 0 penalty as requested)
+            pStats.level = 0;
+            pStats.xp = 0;
+            pStats.xpNeeded = 50;
+            pStats.maxHp = 20;
+            pStats.hp = 20;
+            pStats.coins = 0;
+            updateUI();
+
+            document.getElementById("editor-container").classList.add("hidden");
+            document.getElementById("zone-field").classList.add("hidden");
+            document.getElementById("arrow-to-plaza").classList.add("hidden");
+            
+            document.getElementById("zone-plaza").classList.remove("hidden");
+            document.getElementById("arrow-to-field").classList.remove("hidden");
+            
+            const player = document.getElementById('player');
+            player.style.transition = 'none';
+            player.style.transform = `translate(400px, 350px)`;
+            playerX = 400; playerY = 350;
+            
+            setTimeout(() => {
+                player.style.transition = 'transform 0.6s linear';
+                gameState = "plaza";
+                document.getElementById("task-title").innerHTML = "Recompiled in Plaza";
+                document.getElementById("task-desc").innerHTML = "You died and lost your progress. Visit the Alchemist to prepare better next time.";
+            }, 100);
+        }
+
+        // --- SHOP ENGINE (ALCHEMIST) ---
+        function openShop() {
+            gameState = "shop";
+
+            // CRITICAL FIX: Ensure the single-line input box is visible
+            document.getElementById("multi-line-wrapper").classList.add("hidden");
+            document.getElementById("single-line-wrapper").classList.remove("hidden");
+
+            setupEditorUI("Alchemist Shop", "text-purple-400", ">>>");
+            document.getElementById("task-desc").innerHTML = "\"Welcome back! Need supplies?\"<br>Potions cost 10 coins. They sell for 5.";
+            document.getElementById("editor-container").classList.remove("hidden");
+            updateTerminal(`--- ALCHEMIST SHOP ---`, "system");
+            requestShopAction();
+        }
+
+        function requestShopAction() {
+            updateTerminal(`Type buy('potion') or sell('potion').`, "prompt");
+            document.getElementById("code-input").placeholder = "Type shop command...";
+            document.getElementById("code-input").value = "";
+            document.getElementById("code-input").focus();
+        }
+
+        function processShopCommand(code) {
+            const cmd = code.trim().replace(/\s+/g, '').replace(/"/g, "'");
+            updateTerminal(code, "user");
+
+            if (cmd === "buy('potion')") {
+                if (pStats.coins >= 10) {
+                    pStats.coins -= 10;
+                    pStats.potions++;
+                    updateTerminal(`Bought 1 Potion for 10 coins!`, "success");
+                    updateUI();
+                } else {
+                    updateTerminal(`Insufficient coins! (Cost: 10, You have: ${pStats.coins})`, "error");
+                }
+            } else if (cmd === "sell('potion')") {
+                if (pStats.potions > 0) {
+                    pStats.potions--;
+                    pStats.coins += 5;
+                    updateTerminal(`Sold 1 Potion for 5 coins!`, "success");
+                    updateUI();
+                } else {
+                    updateTerminal(`You have no potions to sell!`, "error");
+                }
+            } else {
+                updateTerminal(`Command not recognized. Use buy('potion') or sell('potion').`, "error");
+            }
+            requestShopAction();
+        }
+
+        function exitShop() {
+            gameState = "plaza";
+            document.getElementById("editor-container").classList.add("hidden");
+            updateTerminal(`Left the shop.`, "info");
+            document.getElementById("task-title").innerHTML = "Wanderer's Log";
+            document.getElementById("task-desc").innerHTML = "The gates to the field are open.";
+        }
+
+        // --- INTERACTION LOGIC (Tutorial NPCs) ---
+        function handleNPCClick(event, npcId) {
+            event.stopPropagation();
+            if (gameState === "combat") return;
+
+            const npcGroup = document.getElementById(`npc-${npcId}`);
+            if (npcGroup.classList.contains("locked")) {
+                updateTerminal("This character has nothing to say right now.", "user");
+                return;
+            }
+
+            // Special Case: Shop opens if tutorial is over and interacting with Alchemist
+            if (gameState === "plaza" && npcId === 'laser') {
+                movePlayer(200, 340, () => openShop());
+                return;
+            }
+
+            // Don't restart tutorial if completed
+            if (npcGroup.classList.contains("completed") && gameState === "plaza") {
+                updateTerminal("They have nothing more to teach you.", "user");
+                return;
+            }
+
+            const levelData = levels[npcId];
+            movePlayer(levelData.npcX, levelData.npcY + 40, () => {
+                openTerminalForLevel(levelData);
+            });
+        }
+
+        function openTerminalForLevel(levelData) {
+            currentLevel = levelData;
+            isSimulating = false;
+            storedVariables = {};
+            
+            setupEditorUI("Python Console", "text-slate-400", ">>>");
+            
+            document.getElementById("task-title").innerHTML = levelData.title;
+            document.getElementById("task-desc").innerHTML = `<p class="italic mb-2">${levelData.desc}</p><p>${levelData.objective}</p>`;
+            document.getElementById("editor-container").classList.remove("hidden");
+
+            if (levelData.type === "final") {
+                document.getElementById("single-line-wrapper").classList.add("hidden");
+                document.getElementById("multi-line-wrapper").classList.remove("hidden");
+                document.getElementById("code-textarea").value = "";
+                document.getElementById("code-textarea").focus();
+            } else {
+                document.getElementById("multi-line-wrapper").classList.add("hidden");
+                document.getElementById("single-line-wrapper").classList.remove("hidden");
+                document.getElementById("code-input").value = "";
+                document.getElementById("code-input").focus();
+            }
+
+            updateTerminal(`Approached ${levelData.title}. Awaiting input...`, "info");
+        }
+
+        function setupEditorUI(labelTxt, colorClass, promptTxt) {
+            const label = document.getElementById("terminal-label");
+            label.innerText = labelTxt;
+            label.className = `block text-xs mb-2 font-bold uppercase tracking-widest ${colorClass}`;
+            document.getElementById("prompt-icon").innerText = promptTxt;
+            document.getElementById("hint-btn").classList.toggle("hidden", gameState !== "tutorial");
+        }
+
+        function showHint() {
+            if (currentLevel) updateTerminal(`HINT: ${currentLevel.hint}`, "info");
+        }
+
+        // --- TERMINAL OUTPUT ---
+        function updateTerminal(msg, type = "info") {
+            const history = document.getElementById("terminal-history");
+            const div = document.createElement("div");
+            
+            if (type === "error") {
+                div.className = "text-red-400 bg-red-950/30 p-2 rounded border border-red-900/50";
+                div.innerHTML = `<span class="font-bold text-red-500">System:</span> ${msg}`;
+            } else if (type === "success") {
+                div.className = "text-emerald-400 font-bold bg-emerald-950/30 p-2 rounded border border-emerald-900/50";
+                div.innerHTML = `> ${msg}`;
+            } else if (type === "user") {
+                div.className = "text-slate-300";
+                div.textContent = `>>> ${msg}`;
+            } else if (type === "prompt") {
+                div.className = "text-yellow-300 font-mono";
+                div.textContent = msg;
+            } else if (type === "system") {
+                div.className = "text-slate-500 font-bold mt-2";
+                div.textContent = msg;
+            } else {
+                div.className = "text-blue-300 italic";
+                div.innerHTML = msg;
+            }
+            
+            history.appendChild(div);
+            history.scrollTop = history.scrollHeight;
+        }
+
+        // --- GLOBAL CODE ROUTER ---
+        function submitCode() {
+            if (gameState === "combat") {
+                processCombatCommand(document.getElementById("code-input").value);
+                return;
+            }
+            if (gameState === "shop") {
+                processShopCommand(document.getElementById("code-input").value);
+                return;
+            }
+
+            // Tutorial Routing
+            if (!currentLevel) return;
+
+            if (isSimulating) {
+                handleSimulationInput();
+                return;
+            }
+
+            // Track attempts to write the correct code
+            currentLevel.codeAttempts++;
+
+            let code = currentLevel.type === "final" 
+                ? document.getElementById("code-textarea").value 
+                : document.getElementById("code-input").value;
+
+            if (!code.trim()) {
+                updateTerminal("Code execution failed: Empty input.", "error");
+                return;
+            }
+
+            updateTerminal(code, "user");
+
+            if (currentLevel.type === "final") {
+                checkFinalChallenge(code);
+            } else {
+                const result = checkSingleLineCode(code, currentLevel);
+                if (result.success) {
+                    currentLevel.savedCode = code; // Save their successful code!
+                    startSimulation([currentLevel]);
+                } else {
+                    updateTerminal(result.msg, "error");
+                }
+            }
+        }
+
+        // --- TUTORIAL SIMULATION ENGINE ---
+        function startSimulation(levelConfigs) {
+            isSimulating = true;
+            simulationQueue = [...levelConfigs];
+            
+            document.getElementById("multi-line-wrapper").classList.add("hidden");
+            document.getElementById("single-line-wrapper").classList.remove("hidden");
+            setupEditorUI("Program Execution", "text-yellow-400", ">");
+            document.getElementById("code-input").placeholder = "Enter your answer...";
+            
+            updateTerminal("--- RUNNING SCRIPT ---", "system");
+            processNextSimulation();
+        }
+
+        function processNextSimulation() {
+            if (simulationQueue.length === 0) {
+                isSimulating = false;
+                setupEditorUI("Python Console", "text-slate-400", ">>>");
+                document.getElementById("code-input").placeholder = "Type python code...";
+                
+                let finalMsg = currentLevel.type === "final" 
+                    ? currentLevel.successMsg(storedVariables) 
+                    : simulationCurrentConfig.successMsg(storedVariables[simulationCurrentConfig.targetVar]);
+                
+                levelComplete(finalMsg);
+                return;
+            }
+
+            simulationCurrentConfig = simulationQueue.shift();
+            updateTerminal(simulationCurrentConfig.targetStr, "prompt");
+            
+            const inputField = document.getElementById("code-input");
+            inputField.value = "";
+            inputField.focus();
+        }
+
+        function handleSimulationInput() {
+            let val = document.getElementById("code-input").value.trim();
+            if (!val) return;
+            updateTerminal(val, "user");
+
+            if (simulationCurrentConfig.type === "int") {
+                if (!/^-?\d+$/.test(val)) { updateTerminal("ValueError: invalid literal for int()", "error"); return; }
+                val = parseInt(val, 10);
+            } else if (simulationCurrentConfig.type === "float") {
+                if (isNaN(parseFloat(val))) { updateTerminal("ValueError: could not convert string to float", "error"); return; }
+                val = parseFloat(val);
+            }
+            storedVariables[simulationCurrentConfig.targetVar] = val;
+            processNextSimulation();
+        }
+
+        function checkSingleLineCode(code, config) {
+            code = code.trim();
+            if (code.includes("Input(") || code.includes("Int(") || code.includes("Float(")) return { success: false, msg: "Functions are case-sensitive." };
+
+            const openP = (code.match(/\(/g) || []).length;
+            const closeP = (code.match(/\)/g) || []).length;
+            if (openP !== closeP) return { success: false, msg: "Mismatched parentheses." };
+
+            const noSpaceCode = code.replace(/\s+/g, '');
+            if (!noSpaceCode.includes('=')) return { success: false, msg: "Missing assignment '='." };
+            if (!noSpaceCode.startsWith(`${config.targetVar}=`)) return { success: false, msg: `Must name variable '${config.targetVar}'.` };
+
+            const rightSideRaw = code.substring(code.indexOf('=') + 1).trim();
+            const rightSideNoSpace = noSpaceCode.substring(noSpaceCode.indexOf('=') + 1);
+
+            const hasCorrectStr = rightSideRaw.includes(`"${config.targetStr}"`) || rightSideRaw.includes(`'${config.targetStr}'`);
+            if (!hasCorrectStr) return { success: false, msg: `Question string must be exact.` };
+
+            if (config.type === "string" && !rightSideNoSpace.startsWith("input(")) return { success: false, msg: "Use `input()`" };
+            if (config.type === "int" && !rightSideNoSpace.startsWith("int(input(")) return { success: false, msg: "Use `int(input(...))`" };
+            if (config.type === "float" && !rightSideNoSpace.startsWith("float(input(")) return { success: false, msg: "Use `float(input(...))`" };
+
+            return { success: true, msg: "Execution successful!" };
+        }
+
+        function checkFinalChallenge(code) {
+            const lines = code.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            if (lines.length < 3) { updateTerminal("Need 3 lines (job, age, height).", "error"); return; }
+
+            const jobConf = { targetVar: "job", type: "string", targetStr: "What is your job?", successMsg: (val) => `Job registered as ${val}.` };
+            const ageConf = { targetVar: "age", type: "int", targetStr: "What is your age?", successMsg: (val) => `Age registered as ${val}.` };
+            const heightConf = { targetVar: "height", type: "float", targetStr: "What is your height?", successMsg: (val) => `Height registered as ${val}.` };
+
+            if (!checkSingleLineCode(lines[0], jobConf).success) return updateTerminal("Line 1 error.", "error");
+            if (!checkSingleLineCode(lines[1], ageConf).success) return updateTerminal("Line 2 error.", "error");
+            if (!checkSingleLineCode(lines[2], heightConf).success) return updateTerminal("Line 3 error.", "error");
+
+            currentLevel.savedCode = code; // Save their successful multi-line code!
+            startSimulation([jobConf, ageConf, heightConf]);
+        }
+
+        function levelComplete(msg) {
+            // Save the variables inputted during simulation for the PDF Report
+            currentLevel.savedVariables = { ...storedVariables };
+
+            updateTerminal(msg, "success");
+            const npcGroup = document.getElementById(`npc-${currentLevel.id}`);
+            npcGroup.classList.remove("active");
+            npcGroup.classList.add("completed");
+            
+            const ring = npcGroup.querySelector('.active-indicator');
+            if(ring) ring.classList.add('hidden');
+
+            progress++;
+            document.getElementById(`prog-${progress}`).classList.replace('bg-slate-700', 'bg-emerald-500');
+
+            if (currentLevel.type === "final") {
+                document.getElementById("task-title").innerHTML = "🎉 Tutorial Completed!";
+                document.getElementById("task-desc").innerHTML = "The Oracle has granted you passage. Welcome to the RPG engine!";
+                document.getElementById("editor-container").classList.add("hidden");
+                updateTerminal("YOU WIN! Unlocked Free Roam.", "success");
+                
+                // Show UI Elements
+                document.getElementById("stats-container").classList.remove("hidden");
+                document.getElementById("tutorial-progress").classList.add("hidden");
+                document.getElementById("arrow-to-field").classList.remove("hidden");
+                gameState = "plaza"; // Unlock Plaza actions
+                updateUI();
+                
+                // Trigger PDF download upon completion
+                generatePDFReport();
+            } else {
+                const nextId = currentLevel.nextObj;
+                const nextElement = document.getElementById(`npc-${nextId}`);
+                nextElement.classList.remove("locked");
+                nextElement.classList.add("active");
+                
+                const nextRing = nextElement.querySelector('.active-indicator');
+                if(nextRing) nextRing.classList.remove('hidden');
+
+                document.getElementById("editor-container").classList.add("hidden");
+                updateTerminal(`Quest log updated.`, "info");
+            }
+            currentLevel = null;
+        }
+
+        // --- PDF GENERATION ENGINE ---
+        function generatePDFReport() {
+            if (!window.jspdf) {
+                updateTerminal("Error: PDF library failed to load.", "error");
+                return;
+            }
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // Academic / Clean Header
+            doc.setFontSize(18);
+            doc.text("Python Assessment Report", 14, 22);
+            
+            doc.setFontSize(11);
+            doc.setTextColor(100);
+            doc.text("Module 1: Standard Input & Variables", 14, 30);
+            doc.text(`Date Completed: ${new Date().toLocaleDateString()}`, 14, 36);
+
+            // Assemble Data into Rows showing actual code written
+            const tableData = [
+                [
+                    "Quest 1: String Input (alias)",
+                    levels.eye.savedCode || "N/A",
+                    levels.eye.codeAttempts || 1
+                ],
+                [
+                    "Quest 2: Int Input (nights)",
+                    levels.logic.savedCode || "N/A",
+                    levels.logic.codeAttempts || 1
+                ],
+                [
+                    "Quest 3: Float Input (temperature)",
+                    levels.laser.savedCode || "N/A",
+                    levels.laser.codeAttempts || 1
+                ],
+                [
+                    "Final Quest: Multi-line Script",
+                    levels.core.savedCode || "N/A",
+                    levels.core.codeAttempts || 1
+                ]
+            ];
+
+            // Render AutoTable
+            doc.autoTable({
+                startY: 45,
+                head: [['Objective', 'Submitted Python Code', 'Code Attempts']],
+                body: tableData,
+                theme: 'grid',
+                headStyles: { fillColor: [44, 62, 80] }, // Professional Slate Blue
+                styles: { fontSize: 10, cellPadding: 5 }
+            });
+
+            // Trigger Download
+            doc.save("Python_Input_Assessment.pdf");
+            updateTerminal("Assessment Report generated and downloaded to your device.", "system");
+        }
+
+        // Keybindings
+        document.getElementById("code-input").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                submitCode();
+            }
+        });
+
+        // --- DEV CHEAT CODE ---
+        let devKeys = "";
+        window.addEventListener("keydown", (e) => {
+            if (e.shiftKey) {
+                if (e.key.length === 1) {
+                    devKeys += e.key.toUpperCase();
+                    if (devKeys.endsWith("DEV")) {
+                        triggerDevSkip();
+                        devKeys = "";
+                    }
+                }
+            } else { devKeys = ""; }
+        });
+
+        function triggerDevSkip() {
+            if (gameState !== "tutorial") return; // Only skip tutorial
+            ['eye', 'logic', 'laser', 'core'].forEach(id => {
+                const npc = document.getElementById(`npc-${id}`);
+                npc.classList.remove("active", "locked");
+                npc.classList.add("completed");
+                const ring = npc.querySelector('.active-indicator');
+                if (ring) ring.classList.add('hidden');
+            });
+            for(let i=1; i<=4; i++) document.getElementById(`prog-${i}`).classList.replace('bg-slate-700', 'bg-emerald-500');
+
+            document.getElementById("stats-container").classList.remove("hidden");
+            document.getElementById("tutorial-progress").classList.add("hidden");
+            document.getElementById("arrow-to-field").classList.remove("hidden");
+            document.getElementById("editor-container").classList.add("hidden");
+            
+            gameState = "plaza";
+            updateUI();
+            updateTerminal("DEV MODE: Tutorial bypassed.", "system");
+            currentLevel = null;
+        }
+    </script>
+</body>
+</html>
